@@ -35,6 +35,7 @@ jobs:
       - name: ▶️ Run All scrapers
         run: |
           python pixelsport.py
+          python ppv.py
           
       - name: 💾 Commit changes in private repo
         id: commit_private
@@ -44,7 +45,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add pixelsports.m3u8 || true
+          git add Pixelsports.m3u8 PPVLand.m3u8 || true
 
           if git diff --cached --quiet; then
             echo "private_changed=false" >> $GITHUB_OUTPUT
@@ -124,6 +125,7 @@ jobs:
             rm -rf "$TMP"
           }
 
-          sync_file "pixelsports.m3u8"
-       
+          sync_file "Pixelsports.m3u8"
+          sync_file "PPVLand.m3u8"
+          sync_file "Roxiestreams_Tivimate.m3u8"
           
