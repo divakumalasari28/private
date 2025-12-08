@@ -1,0 +1,129 @@
+name: 🔁 Run (All Script)
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          # untuk playwraight
+          pip install playwright urllib3 aiohttp
+          playwright install firefox
+          playwright install-deps
+
+      - name: ▶️ Run All scrapers
+        run: |
+          python pixelsport.py
+          
+      - name: 💾 Commit changes in private repo
+        id: commit_private
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add pixelsports.m3u8 || true
+
+          if git diff --cached --quiet; then
+            echo "private_changed=false" >> $GITHUB_OUTPUT
+            echo "✅ No changes in private repo"
+            exit 0
+          fi
+
+          git commit -m "🔁 Auto-update playlists ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+
+          if git push origin main; then
+            echo "private_changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Changes pushed to private repo"
+          else
+            echo "⚠️ Private push failed; attempting safe rebase..."
+            git pull origin main --rebase
+            git push origin main
+            echo "private_changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🚀 Sync All playlists to PUBLIC repo
+        env:
+          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          PUBLIC_REPO="github.com/oprextv/public.git"
+
+          sync_file() {
+            local FILE=$1
+            local TMP=$(mktemp -d)
+
+            echo "---- 🔎 Syncing $FILE ----"
+
+            git clone --depth=1 https://x-access-token:${TOKEN}@${PUBLIC_REPO} "$TMP"
+
+            cd "$TMP"
+            LOCAL_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|origin/||' || echo "main")
+            cd -
+
+            if [ ! -f "$TMP/$FILE" ]; then
+              echo "ℹ️ $FILE not found in public repo → adding"
+              cp "$FILE" "$TMP/$FILE"
+            else
+              if cmp -s "$FILE" "$TMP/$FILE"; then
+                echo "✅ $FILE unchanged → skip"
+                rm -rf "$TMP"
+                return
+              else
+                echo "♻️ $FILE changed → updating"
+                cp "$FILE" "$TMP/$FILE"
+              fi
+            fi
+
+            cd "$TMP"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            git add "$FILE"
+
+            if git diff --cached --quiet; then
+              echo "ℹ️ Nothing to commit for $FILE"
+              rm -rf "$TMP"
+              return
+            fi
+
+            git commit -m "🔁 Update $FILE ($(date -u +'%Y-%m-%d %H:%M UTC'))" || true
+
+            if git push origin "HEAD:${LOCAL_BRANCH}"; then
+              echo "✅ $FILE pushed to public repo"
+            else
+              echo "⚠️ Public push failed for $FILE → trying rebase"
+              git pull origin "${LOCAL_BRANCH}" --rebase
+              git push origin "HEAD:${LOCAL_BRANCH}"
+            fi
+
+            cd -
+            rm -rf "$TMP"
+          }
+
+          sync_file "pixelsports.m3u8"
+       
+          
